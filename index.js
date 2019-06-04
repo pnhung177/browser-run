@@ -1,4 +1,5 @@
 var http = require('http');
+var https = require('https');
 var path = require('path');
 var spawn = require('child_process').spawn;
 var through = require('through');
@@ -42,7 +43,7 @@ function runner (opts) {
 
   var mockHandler = opts.mock && require(path.resolve('./', opts.mock))
 
-  var server = http.createServer(function (req, res) {
+  var httpHandler = function (req, res) {
     if (opts.input === 'javascript') {
       if (/^\/bundle\.js/.test(req.url)) {
         res.setHeader('content-type', 'application/javascript');
@@ -82,7 +83,31 @@ function runner (opts) {
     }
 
     res.end('not supported');
-  });
+  }
+
+  var cert, key, proto;
+  if (opts && opts.ssl && opts.ssl.enabled !== false) {
+    cert = opts.ssl.cert;
+    key = opts.ssl.key;
+    try {
+      key = key || fs.readFileSync(opts.ssl.key_file);
+      cert = cert || fs.readFileSync(opts.ssl.cert_file);
+    } catch(e) {}
+  }
+
+  var server;
+  if (cert && key) {
+    var options = {
+      cert: cert,
+      key: key,
+      rejectUnauthorized: false
+    }
+    proto = 'https';
+    server = https.createServer(options, httpHandler);
+  } else {
+    proto = 'http';
+    server = http.createServer(httpHandler);
+  }
   destroyable(server);
 
   var browser;
@@ -96,7 +121,7 @@ function runner (opts) {
       var port = address.port;
 
       launch(extend(opts, {
-        loc: 'http://localhost:' + port,
+        loc: proto + '://localhost:' + port,
         name: opts.browser,
         bundle: bundle
       }), function(err, _browser){
